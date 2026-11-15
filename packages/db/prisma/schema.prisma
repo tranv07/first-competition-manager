@@ -7,18 +7,295 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model Team {
-  id        String   @id @default(cuid())
-  number    Int      @unique
-  name      String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+enum Program {
+  ftc
+  frc
+  first_global
+  other
+
+  @@map("program")
 }
 
-model Event {
-  id        String   @id @default(cuid())
-  name      String
-  startsAt  DateTime?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+enum Stage {
+  qualification
+  playoff
+  final
+
+  @@map("stage")
+}
+
+enum CompetitionStatus {
+  draft
+  active
+  completed
+
+  @@map("competition_status")
+}
+
+enum MatchStatus {
+  upcoming
+  in_progress
+  completed
+  postponed
+
+  @@map("match_status")
+}
+
+enum ScoreStatus {
+  draft
+  submitted
+  finalized
+
+  @@map("score_status")
+}
+
+enum Alliance {
+  red
+  blue
+
+  @@map("alliance")
+}
+
+enum CompetitionRoleType {
+  event_admin
+  head_referee
+  scorekeeper
+
+  @@map("competition_role_type")
+}
+
+model Competition {
+  id              String            @id @default(uuid()) @db.Uuid
+  name            String
+  program         Program
+  startDate       DateTime          @map("start_date") @db.Date
+  endDate         DateTime          @map("end_date") @db.Date
+  location        String?
+  scoringConfigId String            @map("scoring_config_id") @db.Uuid
+  status          CompetitionStatus @default(draft)
+  createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  scoringConfig   ScoringConfig     @relation(fields: [scoringConfigId], references: [id], onDelete: Restrict)
+  teams           CompetitionTeam[]
+  matches         Match[]
+  roles           CompetitionRole[]
+  rankings        Ranking[]
+
+  @@index([program, startDate])
+  @@map("competition")
+}
+
+model Team {
+  id           String            @id @default(uuid()) @db.Uuid
+  program      Program
+  teamNumber   Int               @map("team_number")
+  name         String
+  organization String
+  city         String?
+  coachName    String            @map("coach_name")
+  robotName    String?           @map("robot_name")
+  logoUrl      String?           @map("logo_url")
+  contactEmail String            @map("contact_email")
+  createdAt    DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  competitions CompetitionTeam[]
+  matchTeams   MatchTeam[]
+  rankings     Ranking[]
+
+  @@unique([program, teamNumber], name: "program_team_number")
+  @@map("team")
+}
+
+model CompetitionTeam {
+  competitionId String      @map("competition_id") @db.Uuid
+  teamId        String      @map("team_id") @db.Uuid
+  registeredAt  DateTime    @default(now()) @map("registered_at") @db.Timestamptz(6)
+  competition   Competition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  team          Team        @relation(fields: [teamId], references: [id], onDelete: Restrict)
+
+  @@id([competitionId, teamId])
+  @@index([teamId])
+  @@map("competition_team")
+}
+
+model Match {
+  id            String       @id @default(uuid()) @db.Uuid
+  competitionId String       @map("competition_id") @db.Uuid
+  stage         Stage
+  round         Int?
+  series        Int?
+  matchNumber   Int          @map("match_number")
+  scheduledTime DateTime?    @map("scheduled_time") @db.Timestamptz(6)
+  fieldNumber   Int?         @map("field_number")
+  status        MatchStatus  @default(upcoming)
+  competition   Competition  @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  teams         MatchTeam[]
+  scores        MatchScore[]
+
+  @@unique([competitionId, stage, matchNumber], name: "competition_stage_match_number")
+  @@index([competitionId, status])
+  @@map("match")
+}
+
+model MatchTeam {
+  matchId     String   @map("match_id") @db.Uuid
+  teamId      String   @map("team_id") @db.Uuid
+  alliance    Alliance
+  isSurrogate Boolean  @default(false) @map("is_surrogate")
+  isDq        Boolean  @default(false) @map("is_dq")
+  match       Match    @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  team        Team     @relation(fields: [teamId], references: [id], onDelete: Restrict)
+
+  @@id([matchId, teamId])
+  @@index([teamId])
+  @@map("match_team")
+}
+
+model User {
+  id               String            @id @default(uuid()) @db.Uuid
+  username         String            @unique
+  email            String            @unique
+  passwordHash     String            @map("password_hash")
+  isSuperAdmin     Boolean           @default(false) @map("is_super_admin")
+  isActive         Boolean           @default(true) @map("is_active")
+  createdAt        DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  lastLoginAt      DateTime?         @map("last_login_at") @db.Timestamptz(6)
+  competitionRoles CompetitionRole[]
+  submittedScores  MatchScore[]      @relation("ScoreSubmittedBy")
+  finalizedScores  MatchScore[]      @relation("ScoreFinalizedBy")
+  scoreAudits      ScoreAudit[]
+
+  @@map("user")
+}
+
+model CompetitionRole {
+  userId        String              @map("user_id") @db.Uuid
+  competitionId String              @map("competition_id") @db.Uuid
+  role          CompetitionRoleType
+  user          User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  competition   Competition         @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+
+  @@id([userId, competitionId, role])
+  @@index([competitionId])
+  @@map("competition_role")
+}
+
+model ScoringConfig {
+  id              String         @id @default(uuid()) @db.Uuid
+  name            String
+  program         Program
+  minorFoulPoints Int?           @map("minor_foul_points")
+  majorFoulPoints Int?           @map("major_foul_points")
+  competitions    Competition[]
+  phases          ScoringPhase[]
+  rankingConfig   RankingConfig?
+
+  @@unique([program, name], name: "program_scoring_config_name")
+  @@map("scoring_config")
+}
+
+model ScoringPhase {
+  id       String           @id @default(uuid()) @db.Uuid
+  configId String           @map("config_id") @db.Uuid
+  key      String
+  label    String
+  position Int
+  config   ScoringConfig    @relation(fields: [configId], references: [id], onDelete: Cascade)
+  elements ScoringElement[]
+
+  @@unique([configId, key], name: "config_phase_key")
+  @@index([configId, position])
+  @@map("scoring_phase")
+}
+
+model ScoringElement {
+  id       String       @id @default(uuid()) @db.Uuid
+  phaseId  String       @map("phase_id") @db.Uuid
+  key      String
+  label    String
+  points   Int
+  maxCount Int?         @map("max_count")
+  phase    ScoringPhase @relation(fields: [phaseId], references: [id], onDelete: Cascade)
+  entries  ScoreEntry[]
+
+  @@unique([phaseId, key], name: "phase_element_key")
+  @@map("scoring_element")
+}
+
+model RankingConfig {
+  scoringConfigId String        @id @map("scoring_config_id") @db.Uuid
+  winRp           Int           @map("win_rp")
+  tieRp           Int           @map("tie_rp")
+  lossRp          Int           @map("loss_rp")
+  tiebreakerOrder String[]      @map("tiebreaker_order")
+  scoringConfig   ScoringConfig @relation(fields: [scoringConfigId], references: [id], onDelete: Cascade)
+
+  @@map("ranking_config")
+}
+
+model MatchScore {
+  id          String       @id @default(uuid()) @db.Uuid
+  matchId     String       @map("match_id") @db.Uuid
+  alliance    Alliance
+  minorFouls  Int          @default(0) @map("minor_fouls")
+  majorFouls  Int          @default(0) @map("major_fouls")
+  totalScore  Int          @default(0) @map("total_score")
+  submittedBy String       @map("submitted_by") @db.Uuid
+  finalizedBy String?      @map("finalized_by") @db.Uuid
+  finalizedAt DateTime?    @map("finalized_at") @db.Timestamptz(6)
+  status      ScoreStatus  @default(draft)
+  match       Match        @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  submitter   User         @relation("ScoreSubmittedBy", fields: [submittedBy], references: [id], onDelete: Restrict)
+  finalizer   User?        @relation("ScoreFinalizedBy", fields: [finalizedBy], references: [id], onDelete: Restrict)
+  entries     ScoreEntry[]
+  audits      ScoreAudit[]
+
+  @@unique([matchId, alliance], name: "match_alliance")
+  @@map("match_score")
+}
+
+model ScoreEntry {
+  matchScoreId String         @map("match_score_id") @db.Uuid
+  elementId    String         @map("element_id") @db.Uuid
+  count        Int
+  matchScore   MatchScore     @relation(fields: [matchScoreId], references: [id], onDelete: Cascade)
+  element      ScoringElement @relation(fields: [elementId], references: [id], onDelete: Restrict)
+
+  @@id([matchScoreId, elementId])
+  @@map("score_entry")
+}
+
+model ScoreAudit {
+  id           String     @id @default(uuid()) @db.Uuid
+  matchScoreId String     @map("match_score_id") @db.Uuid
+  changedBy    String     @map("changed_by") @db.Uuid
+  changedAt    DateTime   @default(now()) @map("changed_at") @db.Timestamptz(6)
+  oldValue     Json       @map("old_value") @db.JsonB
+  newValue     Json       @map("new_value") @db.JsonB
+  reason       String?
+  matchScore   MatchScore @relation(fields: [matchScoreId], references: [id], onDelete: Cascade)
+  user         User       @relation(fields: [changedBy], references: [id], onDelete: Restrict)
+
+  @@index([matchScoreId, changedAt])
+  @@map("score_audit")
+}
+
+model Ranking {
+  competitionId    String      @map("competition_id") @db.Uuid
+  stage            Stage
+  teamId           String      @map("team_id") @db.Uuid
+  rank             Int
+  matchesPlayed    Int         @default(0) @map("matches_played")
+  wins             Int         @default(0)
+  losses           Int         @default(0)
+  ties             Int         @default(0)
+  rankingPoints    Decimal     @default(0) @map("ranking_points") @db.Decimal(12, 2)
+  tiebreakerPoints Decimal     @default(0) @map("tiebreaker_points") @db.Decimal(12, 2)
+  totalPoints      Int         @default(0) @map("total_points")
+  highestScore     Int         @default(0) @map("highest_score")
+  updatedAt        DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
+  competition      Competition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  team             Team        @relation(fields: [teamId], references: [id], onDelete: Restrict)
+
+  @@id([competitionId, stage, teamId])
+  @@index([competitionId, stage, rank])
+  @@map("ranking")
 }
