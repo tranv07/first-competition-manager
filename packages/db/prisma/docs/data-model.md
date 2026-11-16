@@ -1,7 +1,7 @@
 # FIRST Competition Manager: Data Model
 
 Relational data model (PostgreSQL) for managing alliance-based FIRST competitions (FTC, FRC, FIRST Global, ...).
-Scoring phases (Auto, Tele-Op, Endgame, ...) are **optional** and defined per scoring config.
+Scoring phases (Auto, Tele-Op, Endgame, ...) are defined per scoring config; a format without distinct phases uses a single one.
 
 **Conventions**
 
@@ -16,6 +16,10 @@ Scoring phases (Auto, Tele-Op, Endgame, ...) are **optional** and defined per sc
 
 ```
 User ──< CompetitionRole >── Competition ──< CompetitionTeam >── Team
+                                  │
+                                  ├── ScheduleConfig (1:1) ──< ScheduleBreak
+                                  │
+                                  ├──< PlayoffAlliance ──< PlayoffAllianceTeam >── Team
                                   │
                                   ├──< Match ──< MatchTeam >── Team
                                   │      │
@@ -41,6 +45,10 @@ User ──< CompetitionRole >── Competition ──< CompetitionTeam >──
 | `score_status` | `draft`, `submitted`, `finalized` |
 | `alliance` | `red`, `blue` |
 | `competition_role` | `event_admin`, `head_referee`, `scorekeeper` |
+| `ranking_criterion` | `ranking_points`, `tiebreaker_points`, `total_points`, `highest_score` |
+| `tiebreaker_points_rule` | `none`, `own_score`, `own_score_without_fouls`, `losing_alliance_score` |
+| `ranking_aggregation` | `sum`, `average` |
+| `playoff_role` | `captain`, `pick`, `backup` |
 
 ---
 
@@ -120,7 +128,70 @@ Single source of truth for which teams played in a match and on which alliance. 
 
 **Primary key:** `(match_id, team_id)`
 
-The service layer must verify that the team is registered in `CompetitionTeam` for the match's competition.
+The service layer must verify that the team is registered in `CompetitionTeam` for the match's competition, and that each alliance has `ScoringConfig.teams_per_alliance` teams.
+
+---
+
+## Schedule
+
+### ScheduleConfig
+
+Parameters for the qualification schedule. 1:1 with `Competition`. Used by the schedule generator and by schedule validation.
+
+| Field | Type | Description |
+|---|---|---|
+| `competition_id` | UUID | PK and FK → Competition |
+| `matches_per_team` | Integer | Qualification matches each team plays |
+| `number_of_fields` | Integer | Fields running in parallel |
+| `cycle_time_minutes` | Integer | Time between match starts on one field |
+| `start_time` | Timestamp | Start of the first match |
+| `min_matches_between` | Integer | Minimum matches between two plays of the same team |
+| `random_seed` | Integer? | Seed for reproducible schedule generation |
+
+### ScheduleBreak
+
+Breaks (lunch, field reset, ceremonies) the generator must skip.
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | UUID | Primary key |
+| `competition_id` | UUID | FK → Competition |
+| `start_time` | Timestamp | Break start |
+| `end_time` | Timestamp | Break end |
+| `label` | String? | e.g. "Lunch" |
+
+---
+
+## Playoffs
+
+### PlayoffAlliance
+
+An alliance formed during alliance selection.
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | UUID | Primary key |
+| `competition_id` | UUID | FK → Competition |
+| `seed` | Integer | Alliance number / seed (1 = top seed) |
+
+**Unique:** `(competition_id, seed)`
+
+### PlayoffAllianceTeam
+
+Result of alliance selection: which team belongs to which alliance and in what role.
+
+| Field | Type | Description |
+|---|---|---|
+| `alliance_id` | UUID | FK → PlayoffAlliance |
+| `competition_id` | UUID | FK → Competition (denormalized for the uniqueness rule) |
+| `team_id` | UUID | FK → Team |
+| `role` | Enum | `playoff_role` (`captain`, `pick`, `backup`) |
+| `pick_order` | Integer? | Overall order in which the team was picked (null for captains) |
+
+**Primary key:** `(alliance_id, team_id)`
+**Unique:** `(competition_id, team_id)`, so a team belongs to at most one alliance per competition.
+
+A playoff match links to its alliances through `MatchTeam`: the team's `PlayoffAllianceTeam` row gives the alliance. Series winners and bracket advancement are derived from the matches that share `(competition_id, round, series)`.
 
 ---
 
@@ -164,14 +235,15 @@ A `ScoringConfig` is reusable across competitions and seasons. A competition poi
 | `id` | UUID | Primary key |
 | `name` | String | e.g. "FTC Into the Deep" |
 | `program` | Enum | `program` |
-| `minor_foul_points` | Integer? | Null if fouls don't apply |
-| `major_foul_points` | Integer? | Null if fouls don't apply |
+| `teams_per_alliance` | Integer | Teams on each alliance (FTC: 2, FRC: 3) |
+| `minor_foul_points` | Integer | Points awarded to the **opponent** per minor foul, default `0` |
+| `major_foul_points` | Integer | Points awarded to the **opponent** per major foul, default `0` |
 
-Once any score using a config is finalized, the config is **locked**. To change point values, clone the config and assign the clone to the next competition.
+A value of `0` means fouls don't give points. Once any score using a config is finalized, the config is **locked**. To change point values, clone the config and assign the clone to the next competition.
 
 ### ScoringPhase
 
-Optional per config: zero, one, or many rows.
+One or more per config. A format without distinct phases uses a single phase such as `match`.
 
 | Field | Type | Description |
 |---|---|---|
@@ -200,7 +272,7 @@ What can be scored within a phase.
 
 ### RankingConfig
 
-1:1 with `ScoringConfig`. Lets each program define its own ranking rules without code changes.
+1:1 with `ScoringConfig`. Lets each program define its own ranking rules without code changes. The exact rules differ by program and season, so check the current game manual when creating a config.
 
 | Field | Type | Description |
 |---|---|---|
@@ -208,7 +280,18 @@ What can be scored within a phase.
 | `win_rp` | Integer | RP for a win (FTC: 2) |
 | `tie_rp` | Integer | RP for a tie (FTC: 1) |
 | `loss_rp` | Integer | RP for a loss (FTC: 0) |
-| `tiebreaker_order` | Text[] | e.g. `{ranking_points, tiebreaker_points, highest_score}` |
+| `tiebreaker_points_rule` | Enum | `tiebreaker_points_rule`: how TBP is calculated per match |
+| `aggregation` | Enum | `ranking_aggregation`: `sum` or `average` of RP and TBP over the counted matches |
+| `tiebreaker_order` | Enum[] | `ranking_criterion[]`, ordered, e.g. `{ranking_points, tiebreaker_points, highest_score}` |
+
+**`tiebreaker_points_rule` values**
+
+| Value | TBP per match |
+|---|---|
+| `none` | No TBP (always 0) |
+| `own_score` | The alliance's own total score |
+| `own_score_without_fouls` | The alliance's own total score minus the foul points it received |
+| `losing_alliance_score` | The score of the losing alliance, given to both alliances (for a tie, the common score) |
 
 ---
 
@@ -223,8 +306,8 @@ One score per alliance per match.
 | `id` | UUID | Primary key |
 | `match_id` | UUID | FK → Match |
 | `alliance` | Enum | `alliance` (`red` or `blue`) |
-| `minor_fouls` | Integer | Default `0` |
-| `major_fouls` | Integer | Default `0` |
+| `minor_fouls` | Integer | Minor fouls **committed by this alliance**, default `0` |
+| `major_fouls` | Integer | Major fouls **committed by this alliance**, default `0` |
 | `total_score` | Integer | Computed server-side, stored for fast leaderboards |
 | `submitted_by` | UUID | FK → User |
 | `finalized_by` | UUID? | FK → User (Head Referee) |
@@ -277,8 +360,8 @@ History of changes to a score, in particular corrections after finalization.
 | `wins` | Integer | Cached, default `0` |
 | `losses` | Integer | Cached, default `0` |
 | `ties` | Integer | Cached, default `0` |
-| `ranking_points` | Numeric | Numeric, since some programs use averages |
-| `tiebreaker_points` | Numeric | Same |
+| `ranking_points` | Numeric | Sum or average according to `RankingConfig.aggregation` |
+| `tiebreaker_points` | Numeric | Sum or average according to `RankingConfig.aggregation` |
 | `total_points` | Integer | Cached |
 | `highest_score` | Integer | Cached |
 | `updated_at` | Timestamp | Last recalculation |
@@ -289,10 +372,18 @@ History of changes to a score, in particular corrections after finalization.
 
 ## Business Rules
 
-- **Optional phases:** a competition without Auto/Tele-Op/Endgame simply has no such `ScoringPhase` rows (e.g. FIRST Global may have a single `match` phase).
-- **Total score:** `SUM(entry.count * element.points) + fouls * foul_points`, computed in the service layer on submit and stored in `total_score`. Never trust the client.
-- **Finalized scores:** once `status = finalized`, `total_score` is frozen. Corrections go through `ScoreAudit`. For stricter history, snapshot `points` into `ScoreEntry`.
-- **Rankings:** only matches with a finalized score count. Recalculate the affected teams' rows in a transaction whenever a score is finalized or corrected. Respect `is_surrogate` and `is_dq`. Sort by `RankingConfig.tiebreaker_order`, then assign `rank` with `RANK()` or `DENSE_RANK()`.
+- **Total score of an alliance:** `SUM(own entry.count * element.points) + opponent.minor_fouls * minor_foul_points + opponent.major_fouls * major_foul_points`. Fouls committed by an alliance give points to the **opposing** alliance, so the total reads the other alliance's `MatchScore`. Computed in the service layer on submit and stored in `total_score`. Never trust the client.
+- **Match result:** win, loss or tie from comparing the two alliance totals. A result exists only when **both** alliance scores are finalized.
+- **Finalized scores:** once `status = finalized`, `total_score` is frozen. Corrections go through `ScoreAudit`, and both alliances' totals are recalculated because fouls cross over. For stricter history, snapshot `points` into `ScoreEntry`.
+- **Rankings:**
+  - Only matches with both alliance scores finalized count; surrogate matches don't count for the surrogate team.
+  - A DQ'd team gets 0 RP for that match.
+  - RP comes from `win_rp`, `tie_rp`, `loss_rp`. TBP follows `tiebreaker_points_rule`.
+  - RP and TBP are summed or averaged according to `aggregation`.
+  - Sort by `tiebreaker_order`, then assign `rank` with `RANK()` or `DENSE_RANK()`.
+  - Recompute the affected teams in a transaction whenever a score is finalized or corrected.
+- **Schedule:** every team plays `matches_per_team` matches, every alliance has `teams_per_alliance` teams, no team is in two matches at the same time, and a team's plays are at least `min_matches_between` apart. Surrogates are added when the number of teams doesn't divide evenly.
+- **Playoffs:** a team is in at most one `PlayoffAlliance` per competition. Series results and bracket advancement are derived from the matches in the same `(round, series)`.
 - **Integrity:** the service layer verifies that every `ScoreEntry.element_id` belongs to the scoring config of the match's competition, that every `MatchTeam.team_id` is registered via `CompetitionTeam`, and that a `MatchScore` alliance exists in the match.
 - **UI:** the scoring form is generated from the competition's phases and elements, so only existing phases are shown. Each match shows a red and a blue score sheet.
 

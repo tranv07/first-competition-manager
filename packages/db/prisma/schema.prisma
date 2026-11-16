@@ -64,41 +64,130 @@ enum CompetitionRoleType {
   @@map("competition_role_type")
 }
 
+enum RankingCriterion {
+  ranking_points
+  tiebreaker_points
+  total_points
+  highest_score
+
+  @@map("ranking_criterion")
+}
+
+enum TiebreakerPointsRule {
+  none
+  own_score
+  own_score_without_fouls
+  losing_alliance_score
+
+  @@map("tiebreaker_points_rule")
+}
+
+enum RankingAggregation {
+  sum
+  average
+
+  @@map("ranking_aggregation")
+}
+
+enum PlayoffRole {
+  captain
+  pick
+  backup
+
+  @@map("playoff_role")
+}
+
 model Competition {
-  id              String            @id @default(uuid()) @db.Uuid
-  name            String
-  program         Program
-  startDate       DateTime          @map("start_date") @db.Date
-  endDate         DateTime          @map("end_date") @db.Date
-  location        String?
-  scoringConfigId String            @map("scoring_config_id") @db.Uuid
-  status          CompetitionStatus @default(draft)
-  createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
-  scoringConfig   ScoringConfig     @relation(fields: [scoringConfigId], references: [id], onDelete: Restrict)
-  teams           CompetitionTeam[]
-  matches         Match[]
-  roles           CompetitionRole[]
-  rankings        Ranking[]
+  id               String            @id @default(uuid()) @db.Uuid
+  name             String
+  program          Program
+  startDate        DateTime          @map("start_date") @db.Date
+  endDate          DateTime          @map("end_date") @db.Date
+  location         String?
+  scoringConfigId  String            @map("scoring_config_id") @db.Uuid
+  status           CompetitionStatus @default(draft)
+  createdAt        DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  scoringConfig    ScoringConfig     @relation(fields: [scoringConfigId], references: [id], onDelete: Restrict)
+  teams            CompetitionTeam[]
+  matches          Match[]
+  roles            CompetitionRole[]
+  rankings         Ranking[]
+  scheduleConfig   ScheduleConfig?
+  scheduleBreaks   ScheduleBreak[]
+  playoffAlliances PlayoffAlliance[]
 
   @@index([program, startDate])
   @@map("competition")
 }
 
+model ScheduleConfig {
+  competitionId     String      @id @map("competition_id") @db.Uuid
+  matchesPerTeam    Int         @map("matches_per_team")
+  numberOfFields    Int         @map("number_of_fields")
+  cycleTimeMinutes  Int         @map("cycle_time_minutes")
+  startTime         DateTime    @map("start_time") @db.Timestamptz(6)
+  minMatchesBetween Int         @map("min_matches_between")
+  randomSeed        Int?        @map("random_seed")
+  competition       Competition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+
+  @@map("schedule_config")
+}
+
+model ScheduleBreak {
+  id            String      @id @default(uuid()) @db.Uuid
+  competitionId String      @map("competition_id") @db.Uuid
+  startTime     DateTime    @map("start_time") @db.Timestamptz(6)
+  endTime       DateTime    @map("end_time") @db.Timestamptz(6)
+  label         String?
+  competition   Competition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+
+  @@index([competitionId, startTime])
+  @@map("schedule_break")
+}
+
+model PlayoffAlliance {
+  id            String                @id @default(uuid()) @db.Uuid
+  competitionId String                @map("competition_id") @db.Uuid
+  seed          Int
+  competition   Competition           @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  teams         PlayoffAllianceTeam[]
+
+  @@unique([id, competitionId], name: "playoff_alliance_id_competition")
+  @@unique([competitionId, seed], name: "competition_playoff_seed")
+  @@map("playoff_alliance")
+}
+
+model PlayoffAllianceTeam {
+  allianceId    String          @map("alliance_id") @db.Uuid
+  competitionId String          @map("competition_id") @db.Uuid
+  teamId        String          @map("team_id") @db.Uuid
+  role          PlayoffRole
+  pickOrder     Int?            @map("pick_order")
+  alliance      PlayoffAlliance @relation(fields: [allianceId, competitionId], references: [id, competitionId], onDelete: Cascade)
+  team          Team            @relation(fields: [teamId], references: [id], onDelete: Restrict)
+
+  @@id([allianceId, teamId])
+  @@unique([competitionId, teamId], name: "competition_playoff_team")
+  @@index([teamId])
+  @@map("playoff_alliance_team")
+}
+
 model Team {
-  id           String            @id @default(uuid()) @db.Uuid
-  program      Program
-  teamNumber   Int               @map("team_number")
-  name         String
-  organization String
-  city         String?
-  coachName    String            @map("coach_name")
-  robotName    String?           @map("robot_name")
-  logoUrl      String?           @map("logo_url")
-  contactEmail String            @map("contact_email")
-  createdAt    DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
-  competitions CompetitionTeam[]
-  matchTeams   MatchTeam[]
-  rankings     Ranking[]
+  id               String                @id @default(uuid()) @db.Uuid
+  program          Program
+  teamNumber       Int                   @map("team_number")
+  name             String
+  organization     String
+  city             String?
+  coachName        String                @map("coach_name")
+  robotName        String?               @map("robot_name")
+  logoUrl          String?               @map("logo_url")
+  contactEmail     String                @map("contact_email")
+  createdAt        DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  competitions     CompetitionTeam[]
+  matchTeams       MatchTeam[]
+  rankings         Ranking[]
+  playoffAlliances PlayoffAllianceTeam[]
 
   @@unique([program, teamNumber], name: "program_team_number")
   @@map("team")
@@ -179,14 +268,15 @@ model CompetitionRole {
 }
 
 model ScoringConfig {
-  id              String         @id @default(uuid()) @db.Uuid
-  name            String
-  program         Program
-  minorFoulPoints Int?           @map("minor_foul_points")
-  majorFoulPoints Int?           @map("major_foul_points")
-  competitions    Competition[]
-  phases          ScoringPhase[]
-  rankingConfig   RankingConfig?
+  id               String         @id @default(uuid()) @db.Uuid
+  name             String
+  program          Program
+  teamsPerAlliance Int            @map("teams_per_alliance")
+  minorFoulPoints  Int            @default(0) @map("minor_foul_points")
+  majorFoulPoints  Int            @default(0) @map("major_foul_points")
+  competitions     Competition[]
+  phases           ScoringPhase[]
+  rankingConfig    RankingConfig?
 
   @@unique([program, name], name: "program_scoring_config_name")
   @@map("scoring_config")
@@ -221,12 +311,14 @@ model ScoringElement {
 }
 
 model RankingConfig {
-  scoringConfigId String        @id @map("scoring_config_id") @db.Uuid
-  winRp           Int           @map("win_rp")
-  tieRp           Int           @map("tie_rp")
-  lossRp          Int           @map("loss_rp")
-  tiebreakerOrder String[]      @map("tiebreaker_order")
-  scoringConfig   ScoringConfig @relation(fields: [scoringConfigId], references: [id], onDelete: Cascade)
+  scoringConfigId      String               @id @map("scoring_config_id") @db.Uuid
+  winRp                Int                  @map("win_rp")
+  tieRp                Int                  @map("tie_rp")
+  lossRp               Int                  @map("loss_rp")
+  tiebreakerPointsRule TiebreakerPointsRule @map("tiebreaker_points_rule")
+  aggregation          RankingAggregation
+  tiebreakerOrder      RankingCriterion[]   @map("tiebreaker_order")
+  scoringConfig        ScoringConfig        @relation(fields: [scoringConfigId], references: [id], onDelete: Cascade)
 
   @@map("ranking_config")
 }

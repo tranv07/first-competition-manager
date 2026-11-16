@@ -13,6 +13,7 @@ async function main() {
       data: {
         program: "ftc",
         name: configName,
+        teamsPerAlliance: 2,
         minorFoulPoints: 5,
         majorFoulPoints: 15,
       },
@@ -20,7 +21,11 @@ async function main() {
   } else {
     scoringConfig = await prisma.scoringConfig.update({
       where: { id: scoringConfig.id },
-      data: { minorFoulPoints: 5, majorFoulPoints: 15 },
+      data: {
+        teamsPerAlliance: 2,
+        minorFoulPoints: 5,
+        majorFoulPoints: 15,
+      },
     });
   }
 
@@ -31,13 +36,25 @@ async function main() {
       winRp: 2,
       tieRp: 1,
       lossRp: 0,
-      tiebreakerOrder: ["ranking_points", "tiebreaker_points", "highest_score"],
+      tiebreakerPointsRule: "own_score",
+      aggregation: "sum",
+      tiebreakerOrder: [
+        "ranking_points",
+        "tiebreaker_points",
+        "highest_score",
+      ],
     },
     update: {
       winRp: 2,
       tieRp: 1,
       lossRp: 0,
-      tiebreakerOrder: ["ranking_points", "tiebreaker_points", "highest_score"],
+      tiebreakerPointsRule: "own_score",
+      aggregation: "sum",
+      tiebreakerOrder: [
+        "ranking_points",
+        "tiebreaker_points",
+        "highest_score",
+      ],
     },
   });
 
@@ -128,6 +145,69 @@ async function main() {
       contactEmail: "team10003@example.test",
       robotName: "Gearbox",
     },
+    {
+      teamNumber: 10004,
+      name: "Robo Raptors",
+      organization: "FCM Demo Academy",
+      city: "Calgary",
+      coachName: "Casey Coach",
+      contactEmail: "team10004@example.test",
+      robotName: "Raptor",
+    },
+    {
+      teamNumber: 10005,
+      name: "Byte-Sized Bots",
+      organization: "FCM Demo Club",
+      city: "Vancouver",
+      coachName: "Morgan Coach",
+      contactEmail: "team10005@example.test",
+      robotName: "Bit",
+    },
+    {
+      teamNumber: 10006,
+      name: "Torque Titans",
+      organization: "FCM Demo School",
+      city: "Edmonton",
+      coachName: "Riley Coach",
+      contactEmail: "team10006@example.test",
+      robotName: "Titan",
+    },
+    {
+      teamNumber: 10007,
+      name: "Pixel Pioneers",
+      organization: "FCM Demo Academy",
+      city: "Winnipeg",
+      coachName: "Avery Coach",
+      contactEmail: "team10007@example.test",
+      robotName: "Pixel",
+    },
+    {
+      teamNumber: 10008,
+      name: "Nova Mechanics",
+      organization: "FCM Demo Club",
+      city: "Halifax",
+      coachName: "Jamie Coach",
+      contactEmail: "team10008@example.test",
+      robotName: "Nova",
+    },
+    {
+      teamNumber: 10009,
+      name: "Copper Circuits",
+      organization: "FCM Demo School",
+      city: "Quebec City",
+      coachName: "Drew Coach",
+      contactEmail: "team10009@example.test",
+      robotName: "Copper",
+    },
+    {
+      teamNumber: 10010,
+      name: "Orbit Engineers",
+      organization: "FCM Demo Academy",
+      city: "Victoria",
+      coachName: "Quinn Coach",
+      contactEmail: "team10010@example.test",
+      robotName: "Orbit",
+    },
   ];
 
   const teams = [];
@@ -169,6 +249,27 @@ async function main() {
       data: competitionData,
     });
   }
+
+  await prisma.scheduleConfig.upsert({
+    where: { competitionId: competition.id },
+    create: {
+      competitionId: competition.id,
+      matchesPerTeam: 6,
+      numberOfFields: 1,
+      cycleTimeMinutes: 5,
+      startTime: new Date("2025-02-15T09:00:00.000Z"),
+      minMatchesBetween: 1,
+      randomSeed: 42,
+    },
+    update: {
+      matchesPerTeam: 6,
+      numberOfFields: 1,
+      cycleTimeMinutes: 5,
+      startTime: new Date("2025-02-15T09:00:00.000Z"),
+      minMatchesBetween: 1,
+      randomSeed: 42,
+    },
+  });
 
   for (const team of teams) {
     await prisma.competitionTeam.upsert({
