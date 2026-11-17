@@ -12,6 +12,7 @@
     "build": "npm run build --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
+    "test": "vitest run",
     "db:generate": "prisma generate --schema packages/db/prisma/schema.prisma",
     "db:migrate": "prisma migrate dev --schema packages/db/prisma/schema.prisma",
     "db:seed": "prisma db seed --schema packages/db/prisma/schema.prisma"
@@ -24,6 +25,7 @@
     "eslint": "^9.39.1",
     "prettier": "^3.6.2",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^8.72.1"
+    "typescript-eslint": "^8.72.1",
+    "vitest": "^5.1.0"
   }
 }
