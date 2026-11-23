@@ -12,7 +12,9 @@
   "dependencies": {
     "@fcm/shared": "*",
     "@hono/node-server": "^1.19.5",
-    "hono": "^4.10.4"
+    "@prisma/client": "^6.19.0",
+    "hono": "^4.10.4",
+    "zod": "^4.1.12"
   },
   "devDependencies": {
     "@types/node": "^24.10.0",

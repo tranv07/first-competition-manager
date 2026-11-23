@@ -38,11 +38,7 @@ async function main() {
       lossRp: 0,
       tiebreakerPointsRule: "own_score",
       aggregation: "sum",
-      tiebreakerOrder: [
-        "ranking_points",
-        "tiebreaker_points",
-        "highest_score",
-      ],
+      tiebreakerOrder: ["ranking_points", "tiebreaker_points", "highest_score"],
     },
     update: {
       winRp: 2,
@@ -50,11 +46,7 @@ async function main() {
       lossRp: 0,
       tiebreakerPointsRule: "own_score",
       aggregation: "sum",
-      tiebreakerOrder: [
-        "ranking_points",
-        "tiebreaker_points",
-        "highest_score",
-      ],
+      tiebreakerOrder: ["ranking_points", "tiebreaker_points", "highest_score"],
     },
   });
 
@@ -81,9 +73,24 @@ async function main() {
       label: "Endgame",
       position: 2,
       elements: [
-        { key: "ascent_level1", label: "Level 1 Ascent", points: 3, maxCount: 1 },
-        { key: "ascent_level2", label: "Level 2 Ascent", points: 15, maxCount: 1 },
-        { key: "ascent_level3", label: "Level 3 Ascent", points: 30, maxCount: 1 },
+        {
+          key: "ascent_level1",
+          label: "Level 1 Ascent",
+          points: 3,
+          maxCount: 1,
+        },
+        {
+          key: "ascent_level2",
+          label: "Level 2 Ascent",
+          points: 15,
+          maxCount: 1,
+        },
+        {
+          key: "ascent_level3",
+          label: "Level 3 Ascent",
+          points: 30,
+          maxCount: 1,
+        },
       ],
     },
   ];
@@ -274,15 +281,80 @@ async function main() {
   for (const team of teams) {
     await prisma.competitionTeam.upsert({
       where: {
-        competitionId_teamId: { competitionId: competition.id, teamId: team.id },
+        competitionId_teamId: {
+          competitionId: competition.id,
+          teamId: team.id,
+        },
       },
       create: { competitionId: competition.id, teamId: team.id },
       update: {},
     });
   }
 
+  const demoScorer = await prisma.user.upsert({
+    where: { username: "demo-scorekeeper" },
+    create: {
+      username: "demo-scorekeeper",
+      email: "demo-scorekeeper@example.test",
+      passwordHash: "!seeded-demo-user-no-login",
+      isActive: true,
+    },
+    update: { isActive: true },
+  });
+
+  await prisma.competitionRole.upsert({
+    where: {
+      userId_competitionId_role: {
+        userId: demoScorer.id,
+        competitionId: competition.id,
+        role: "scorekeeper",
+      },
+    },
+    create: {
+      userId: demoScorer.id,
+      competitionId: competition.id,
+      role: "scorekeeper",
+    },
+    update: {},
+  });
+
+  const demoMatch = await prisma.match.upsert({
+    where: {
+      competition_stage_match_number: {
+        competitionId: competition.id,
+        stage: "qualification",
+        matchNumber: 1,
+      },
+    },
+    create: {
+      competitionId: competition.id,
+      stage: "qualification",
+      matchNumber: 1,
+      scheduledTime: new Date("2025-02-15T09:00:00.000Z"),
+      fieldNumber: 1,
+    },
+    update: {
+      scheduledTime: new Date("2025-02-15T09:00:00.000Z"),
+      fieldNumber: 1,
+    },
+  });
+
+  for (const [index, team] of teams.slice(0, 4).entries()) {
+    await prisma.matchTeam.upsert({
+      where: {
+        matchId_teamId: { matchId: demoMatch.id, teamId: team.id },
+      },
+      create: {
+        matchId: demoMatch.id,
+        teamId: team.id,
+        alliance: index < 2 ? "red" : "blue",
+      },
+      update: { alliance: index < 2 ? "red" : "blue" },
+    });
+  }
+
   console.log(
-    `Seeded ${scoringConfig.name}, ${teams.length} FTC teams, and ${competition.name}.`,
+    `Seeded ${scoringConfig.name}, ${teams.length} FTC teams, ${competition.name}, and qualification match 1.`,
   );
 }
 
