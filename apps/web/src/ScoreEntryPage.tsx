@@ -1,10 +1,15 @@
+"use client";
+
+import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import type { Alliance, DemoData, ScoreSheetState, ScoreSheets } from "./types";
-
-interface ScoreEntryPageProps {
-  data: DemoData;
-  onScoresUpdated: () => Promise<void>;
-}
+import {
+  correctMatchScores,
+  finalizeMatchScores,
+  saveScoreDrafts,
+  submitScoreSheets,
+  type ScoreActionState,
+} from "./app/actions/scores";
 
 const emptySheets = (): ScoreSheets => ({
   red: { minorFouls: "0", majorFouls: "0", entries: {} },
@@ -24,21 +29,53 @@ function getInitialSheets(data: DemoData): ScoreSheets {
   return sheets;
 }
 
+function getInitialStatus(
+  data: DemoData,
+  alliance: Alliance,
+): string | undefined {
+  return data.match.scores.find((score) => score.alliance === alliance)?.status;
+}
+
 export default function ScoreEntryPage({
   data,
-  onScoresUpdated,
-}: ScoreEntryPageProps) {
+  canSubmit,
+  canFinalize,
+  canCorrect,
+}: {
+  data: DemoData;
+  canSubmit: boolean;
+  canFinalize: boolean;
+  canCorrect: boolean;
+}) {
+  const router = useRouter();
   const [sheets, setSheets] = useState(() => getInitialSheets(data));
+  const [reason, setReason] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-  const isCorrecting = data.match.scores.some(
-    (score) => score.status === "finalized",
-  );
+  const [feedback, setFeedback] = useState<ScoreActionState | null>(null);
   const teamsByAlliance = {
     red: data.match.teams.filter((team) => team.alliance === "red"),
     blue: data.match.teams.filter((team) => team.alliance === "blue"),
   };
+  const scoreStatuses = {
+    red: getInitialStatus(data, "red"),
+    blue: getInitialStatus(data, "blue"),
+  };
+  const canEditDrafts =
+    canSubmit &&
+    Object.values(scoreStatuses).every(
+      (status) => status === undefined || status === "draft",
+    );
+  const canEditCorrection =
+    canCorrect &&
+    scoreStatuses.red === "finalized" &&
+    scoreStatuses.blue === "finalized";
+  const fieldsDisabled = isSubmitting || (!canEditDrafts && !canEditCorrection);
+  const canFinalizeMatch =
+    canFinalize &&
+    scoreStatuses.red === "submitted" &&
+    scoreStatuses.blue === "submitted";
+  const isFinalized =
+    scoreStatuses.red === "finalized" && scoreStatuses.blue === "finalized";
 
   function updateSheet(
     alliance: Alliance,
@@ -48,66 +85,75 @@ export default function ScoreEntryPage({
       ...current,
       [alliance]: update(current[alliance]),
     }));
-    setNotice(null);
+    setFeedback(null);
   }
 
-  async function submitScores(event: FormEvent<HTMLFormElement>) {
+  function getSubmission() {
+    return {
+      red: {
+        minorFouls: Number(sheets.red.minorFouls),
+        majorFouls: Number(sheets.red.majorFouls),
+        entries: data.competition.scoringConfig.phases.flatMap((phase) =>
+          phase.elements.map((element) => ({
+            elementId: element.id,
+            count: Number(sheets.red.entries[element.id] ?? 0),
+          })),
+        ),
+      },
+      blue: {
+        minorFouls: Number(sheets.blue.minorFouls),
+        majorFouls: Number(sheets.blue.majorFouls),
+        entries: data.competition.scoringConfig.phases.flatMap((phase) =>
+          phase.elements.map((element) => ({
+            elementId: element.id,
+            count: Number(sheets.blue.entries[element.id] ?? 0),
+          })),
+        ),
+      },
+    };
+  }
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (isSubmitting) {
-      return;
-    }
+    if (isSubmitting) return;
+    const submitter =
+      event.nativeEvent instanceof SubmitEvent
+        ? event.nativeEvent.submitter
+        : null;
+    const action =
+      submitter instanceof HTMLButtonElement ? submitter.value : "draft";
 
     setIsSubmitting(true);
-    setError(null);
-    setNotice(null);
-
+    setFeedback(null);
     try {
-      const response = await fetch(`/api/matches/${data.match.id}/finalize`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          red: {
-            minorFouls: Number(sheets.red.minorFouls),
-            majorFouls: Number(sheets.red.majorFouls),
-            entries: data.competition.scoringConfig.phases.flatMap((phase) =>
-              phase.elements.map((element) => ({
-                elementId: element.id,
-                count: Number(sheets.red.entries[element.id] ?? 0),
-              })),
-            ),
-          },
-          blue: {
-            minorFouls: Number(sheets.blue.minorFouls),
-            majorFouls: Number(sheets.blue.majorFouls),
-            entries: data.competition.scoringConfig.phases.flatMap((phase) =>
-              phase.elements.map((element) => ({
-                elementId: element.id,
-                count: Number(sheets.blue.entries[element.id] ?? 0),
-              })),
-            ),
-          },
-        }),
-      });
-      const body: unknown = await response.json();
-      if (!response.ok) {
-        const message =
-          typeof body === "object" &&
-          body !== null &&
-          "error" in body &&
-          typeof body.error === "string"
-            ? body.error
-            : "Scores could not be finalized.";
-        throw new Error(message);
+      let result: ScoreActionState;
+      if (action === "draft") {
+        result = await saveScoreDrafts(data.match.id, getSubmission());
+      } else if (action === "submit") {
+        result = await submitScoreSheets(data.match.id, getSubmission());
+      } else if (action === "finalize") {
+        result = await finalizeMatchScores(data.match.id);
+      } else if (action === "correct") {
+        result = await correctMatchScores(
+          data.match.id,
+          getSubmission(),
+          reason,
+        );
+        if (!result.error) setReason("");
+      } else {
+        setFeedback({
+          message: "Choose a score action and try again.",
+          error: true,
+        });
+        return;
       }
-
-      await onScoresUpdated();
-      setNotice("Scores finalized. Competition rankings have been updated.");
-    } catch (submitError: unknown) {
-      setError(
-        submitError instanceof Error
-          ? submitError.message
-          : "Scores could not be finalized. Check the connection and try again.",
-      );
+      setFeedback(result);
+      if (!result.error) router.refresh();
+    } catch {
+      setFeedback({
+        message: "The score update failed. Check the connection and try again.",
+        error: true,
+      });
     } finally {
       setIsSubmitting(false);
     }
@@ -120,18 +166,21 @@ export default function ScoreEntryPage({
           <p className="eyebrow">Qualification: Match {data.match.number}</p>
           <h1>Score entry</h1>
           <p className="subheading">
-            Enter both alliance score sheets. Scores are calculated and
-            validated by the server.
+            Draft, submit, and finalize both alliance score sheets with an
+            audited correction path.
           </p>
         </div>
         <span
-          className={`status-pill status-pill--${data.match.status === "completed" ? "complete" : "upcoming"}`}
+          className={`status-pill status-pill--${isFinalized ? "complete" : "upcoming"}`}
         >
-          {data.match.status === "completed" ? "Finalized" : "Upcoming"}
+          {isFinalized ? "Finalized" : "In progress"}
         </span>
       </header>
 
-      <section className="match-banner" aria-label="Match teams">
+      <section
+        className="match-banner"
+        aria-label="Match teams and saved scores"
+      >
         {(["red", "blue"] as const).map((alliance) => (
           <div
             className={`match-banner__side match-banner__side--${alliance}`}
@@ -146,6 +195,9 @@ export default function ScoreEntryPage({
                 .map((team) => `${team.number} ${team.name}`)
                 .join(", ")}
             </strong>
+            <span className="score-sheet-status">
+              {scoreStatuses[alliance] ?? "Not started"}
+            </span>
           </div>
         ))}
         <div className="match-banner__score" aria-label="Saved match score">
@@ -166,13 +218,13 @@ export default function ScoreEntryPage({
         </div>
       </section>
 
-      <form className="scoring-form" onSubmit={submitScores}>
+      <form className="scoring-form" onSubmit={submit}>
         <div className="alliance-grid">
           {(["red", "blue"] as const).map((alliance) => (
             <fieldset
               className={`alliance-sheet alliance-sheet--${alliance}`}
+              disabled={fieldsDisabled}
               key={alliance}
-              disabled={isSubmitting}
             >
               <legend>
                 <span className="alliance-marker" aria-hidden="true" />
@@ -254,30 +306,83 @@ export default function ScoreEntryPage({
           ))}
         </div>
 
-        {error && (
-          <p className="feedback feedback--error" role="alert">
-            {error}
-          </p>
+        {canEditCorrection && (
+          <label className="correction-reason" htmlFor="correction-reason">
+            Correction reason
+            <textarea
+              id="correction-reason"
+              maxLength={500}
+              minLength={5}
+              onChange={(event) => setReason(event.currentTarget.value)}
+              required
+              value={reason}
+            />
+          </label>
         )}
-        {notice && (
-          <p className="feedback feedback--success" role="status">
-            {notice}
+
+        {feedback && (
+          <p
+            className={`feedback ${feedback.error ? "feedback--error" : "feedback--success"}`}
+            role={feedback.error ? "alert" : "status"}
+          >
+            {feedback.message}
           </p>
         )}
 
         <div className="form-actions">
           <p>
-            {isCorrecting
-              ? "Corrections are recorded in the score audit."
-              : "Both score sheets will be finalized together."}
+            {canEditCorrection
+              ? "Corrections require a reason and create an audit record."
+              : canEditDrafts
+                ? "Only draft scores can be edited. Submitted scores are locked."
+                : canFinalizeMatch
+                  ? "Both score sheets are submitted and ready for finalization."
+                  : isFinalized
+                    ? "Final scores are locked. Ask a head referee to make a correction."
+                    : "Your role can view these scores but cannot change their status."}
           </p>
-          <button type="submit" disabled={isSubmitting}>
-            {isSubmitting
-              ? "Saving scores…"
-              : isCorrecting
-                ? "Save correction"
-                : "Finalize match"}
-          </button>
+          <div className="score-actions">
+            {canEditDrafts && (
+              <>
+                <button
+                  className="button button--outline"
+                  disabled={isSubmitting}
+                  type="submit"
+                  value="draft"
+                >
+                  Save draft
+                </button>
+                <button
+                  className="button button--primary"
+                  disabled={isSubmitting}
+                  type="submit"
+                  value="submit"
+                >
+                  Submit both sheets
+                </button>
+              </>
+            )}
+            {canFinalizeMatch && (
+              <button
+                className="button button--primary"
+                disabled={isSubmitting}
+                type="submit"
+                value="finalize"
+              >
+                Finalize scores
+              </button>
+            )}
+            {canEditCorrection && (
+              <button
+                className="button button--primary"
+                disabled={isSubmitting}
+                type="submit"
+                value="correct"
+              >
+                Save audited correction
+              </button>
+            )}
+          </div>
         </div>
       </form>
     </div>

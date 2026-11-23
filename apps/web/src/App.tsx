@@ -1,42 +1,26 @@
-import { useCallback, useEffect, useState } from "react";
-import {
-  Link,
-  NavLink,
-  Outlet,
-  Route,
-  Routes,
-  useParams,
-} from "react-router-dom";
-import ScoreEntryPage from "./ScoreEntryPage";
+import Link from "next/link";
+import type { ReactNode } from "react";
+import SignOutButton from "./SignOutButton";
+import WorkspaceNav from "./WorkspaceNav";
 import type { DemoData, RankingRow } from "./types";
 
-function getErrorMessage(body: unknown, fallback: string): string {
-  if (
-    typeof body === "object" &&
-    body !== null &&
-    "error" in body &&
-    typeof body.error === "string"
-  ) {
-    return body.error;
-  }
-  return fallback;
-}
-
-function AppFrame({ data }: { data: DemoData }) {
-  const navItems = [
-    { to: "/", label: "Overview", glyph: "O", end: true },
-    { to: "/events", label: "Event", glyph: "E" },
-    { to: "/teams", label: "Teams", glyph: "T" },
-    { to: "/matches", label: "Matches", glyph: "M" },
-    { to: "/rankings", label: "Rankings", glyph: "R" },
-  ];
-
+export function AppFrame({
+  data,
+  currentUser,
+  canManageUsers,
+  children,
+}: {
+  data: DemoData;
+  currentUser: { name: string; email: string };
+  canManageUsers: boolean;
+  children: ReactNode;
+}) {
   return (
     <div className="app-frame">
       <aside className="sidebar">
         <Link
           className="brand"
-          to="/"
+          href="/workspace"
           aria-label="FIRST Competition Manager home"
         >
           <span className="brand-mark" aria-hidden="true">
@@ -49,31 +33,17 @@ function AppFrame({ data }: { data: DemoData }) {
         </Link>
 
         <div className="sidebar-label">WORKSPACE</div>
-        <nav className="primary-nav" aria-label="Main navigation">
-          {navItems.map((item) => (
-            <NavLink
-              className={({ isActive }) =>
-                `nav-link${isActive ? " nav-link--active" : ""}`
-              }
-              end={item.end}
-              key={item.to}
-              to={item.to}
-            >
-              <span className="nav-glyph" aria-hidden="true">
-                {item.glyph}
-              </span>
-              {item.label}
-              {item.label === "Matches" && <span className="nav-count">1</span>}
-            </NavLink>
-          ))}
-        </nav>
+        <WorkspaceNav
+          competitionId={data.competition.id}
+          canManageUsers={canManageUsers}
+        />
 
         <div className="sidebar-event">
           <div className="sidebar-label">CURRENT EVENT</div>
           <span className="event-indicator" aria-hidden="true" />
           <strong>{data.competition.name}</strong>
           <span>{data.competition.location ?? "Location to be announced"}</span>
-          <Link to="/events">View event</Link>
+          <Link href="/workspace/events">View event</Link>
         </div>
 
         <div className="sidebar-footer">
@@ -94,51 +64,16 @@ function AppFrame({ data }: { data: DemoData }) {
               D
             </span>
             <span>
-              <strong>Demo workspace</strong>
-              <small>Local preview</small>
+              <strong>{currentUser.name}</strong>
+              <small>{currentUser.email}</small>
             </span>
+            <SignOutButton />
           </div>
         </header>
-        <main className="route-content">
-          <Outlet />
-        </main>
+        <main className="route-content">{children}</main>
       </div>
     </div>
   );
-}
-
-function useCompetitionData() {
-  const [data, setData] = useState<DemoData | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const loadData = useCallback(async () => {
-    setError(null);
-    try {
-      const response = await fetch("/api/demo");
-      const body: unknown = await response.json();
-      if (!response.ok) {
-        throw new Error(
-          getErrorMessage(body, "Could not load the demo competition."),
-        );
-      }
-      setData(body as DemoData);
-    } catch (loadError: unknown) {
-      setError(
-        loadError instanceof Error
-          ? loadError.message
-          : "Could not load the demo competition.",
-      );
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void loadData();
-  }, [loadData]);
-
-  return { data, isLoading, error, reload: loadData };
 }
 
 function formatEventDate(startDate: string, endDate: string): string {
@@ -155,7 +90,7 @@ function formatEventDate(startDate: string, endDate: string): string {
   return `${start.toLocaleDateString(undefined, { month: "short", day: "numeric" })} to ${end.toLocaleDateString(undefined, options)}`;
 }
 
-function RankingTable({ rankings }: { rankings: RankingRow[] }) {
+export function RankingTable({ rankings }: { rankings: RankingRow[] }) {
   return (
     <div className="table-scroll">
       <table>
@@ -200,7 +135,7 @@ function RankingTable({ rankings }: { rankings: RankingRow[] }) {
   );
 }
 
-function HomePage({ data }: { data: DemoData }) {
+export function HomePage({ data }: { data: DemoData }) {
   const matchesPlayed = data.rankings.reduce(
     (max, ranking) => Math.max(max, ranking.matchesPlayed),
     0,
@@ -226,12 +161,12 @@ function HomePage({ data }: { data: DemoData }) {
           <div className="hero-actions">
             <Link
               className="button button--light"
-              to={`/matches/${data.match.id}/score`}
+              href={`/workspace/matches/${data.match.id}/score`}
             >
               {finalized ? "Review match score" : "Enter match score"}
               <span aria-hidden="true">→</span>
             </Link>
-            <Link className="hero-secondary-link" to="/events">
+            <Link className="hero-secondary-link" href="/workspace/events">
               Explore event
             </Link>
           </div>
@@ -330,7 +265,7 @@ function HomePage({ data }: { data: DemoData }) {
                 ? new Date(data.match.scheduledTime).toLocaleString()
                 : "Field 1, Qualification"}
             </span>
-            <Link to={`/matches/${data.match.id}/score`}>
+            <Link href={`/workspace/matches/${data.match.id}/score`}>
               {finalized ? "Review score" : "Open score sheet"}{" "}
               <span aria-hidden="true">→</span>
             </Link>
@@ -376,7 +311,7 @@ function HomePage({ data }: { data: DemoData }) {
               </span>
             </div>
           </div>
-          <Link className="text-link" to="/events">
+          <Link className="text-link" href="/workspace/events">
             View event details <span aria-hidden="true">→</span>
           </Link>
         </section>
@@ -388,7 +323,7 @@ function HomePage({ data }: { data: DemoData }) {
             <p className="eyebrow">COMPETITION STANDINGS</p>
             <h2>Qualification rankings</h2>
           </div>
-          <Link className="text-link" to="/rankings">
+          <Link className="text-link" href="/workspace/rankings">
             View all rankings <span aria-hidden="true">→</span>
           </Link>
         </div>
@@ -408,7 +343,7 @@ function HomePage({ data }: { data: DemoData }) {
             </div>
             <Link
               className="button button--outline"
-              to={`/matches/${data.match.id}/score`}
+              href={`/workspace/matches/${data.match.id}/score`}
             >
               Go to scoring
             </Link>
@@ -419,7 +354,7 @@ function HomePage({ data }: { data: DemoData }) {
   );
 }
 
-function EventPage({ data }: { data: DemoData }) {
+export function EventPage({ data }: { data: DemoData }) {
   return (
     <div className="page-content">
       <header className="content-header">
@@ -450,7 +385,7 @@ function EventPage({ data }: { data: DemoData }) {
           </p>
           <Link
             className="button button--primary"
-            to={`/matches/${data.match.id}/score`}
+            href={`/workspace/matches/${data.match.id}/score`}
           >
             Open Match 1 score sheet <span aria-hidden="true">→</span>
           </Link>
@@ -494,7 +429,7 @@ function EventPage({ data }: { data: DemoData }) {
           </div>
         </div>
         <div className="operation-links">
-          <Link to="/teams">
+          <Link href="/workspace/teams">
             <span className="operation-number">01</span>
             <span>
               <strong>Team roster</strong>
@@ -502,7 +437,7 @@ function EventPage({ data }: { data: DemoData }) {
             </span>
             <span aria-hidden="true">→</span>
           </Link>
-          <Link to="/matches">
+          <Link href="/workspace/matches">
             <span className="operation-number">02</span>
             <span>
               <strong>Match schedule</strong>
@@ -510,7 +445,7 @@ function EventPage({ data }: { data: DemoData }) {
             </span>
             <span aria-hidden="true">→</span>
           </Link>
-          <Link to="/rankings">
+          <Link href="/workspace/rankings">
             <span className="operation-number">03</span>
             <span>
               <strong>Live rankings</strong>
@@ -524,7 +459,7 @@ function EventPage({ data }: { data: DemoData }) {
   );
 }
 
-function TeamsPage({ data }: { data: DemoData }) {
+export function TeamsPage({ data }: { data: DemoData }) {
   return (
     <div className="page-content">
       <header className="content-header">
@@ -585,7 +520,7 @@ function TeamsPage({ data }: { data: DemoData }) {
   );
 }
 
-function MatchesPage({ data }: { data: DemoData }) {
+export function MatchesPage({ data }: { data: DemoData }) {
   const isFinalized = data.match.status === "completed";
   return (
     <div className="page-content">
@@ -650,7 +585,7 @@ function MatchesPage({ data }: { data: DemoData }) {
           </div>
           <Link
             className="button button--outline"
-            to={`/matches/${data.match.id}/score`}
+            href={`/workspace/matches/${data.match.id}/score`}
           >
             {isFinalized ? "Review score" : "Score match"}
           </Link>
@@ -664,7 +599,7 @@ function MatchesPage({ data }: { data: DemoData }) {
   );
 }
 
-function RankingsPage({ data }: { data: DemoData }) {
+export function RankingsPage({ data }: { data: DemoData }) {
   return (
     <div className="page-content">
       <header className="content-header">
@@ -705,7 +640,7 @@ function RankingsPage({ data }: { data: DemoData }) {
             </div>
             <Link
               className="button button--primary"
-              to={`/matches/${data.match.id}/score`}
+              href={`/workspace/matches/${data.match.id}/score`}
             >
               Score Qualification 1 <span aria-hidden="true">→</span>
             </Link>
@@ -716,100 +651,13 @@ function RankingsPage({ data }: { data: DemoData }) {
   );
 }
 
-function ScoreRoute({
-  data,
-  onScoresUpdated,
-}: {
-  data: DemoData;
-  onScoresUpdated: () => Promise<void>;
-}) {
-  const { matchId } = useParams();
-  if (matchId !== data.match.id) {
-    return (
-      <section className="panel not-found-panel">
-        <h1>Match not found</h1>
-        <p>This demo workspace only has Qualification Match 1.</p>
-        <Link className="button button--primary" to="/matches">
-          Return to match schedule
-        </Link>
-      </section>
-    );
-  }
-  return <ScoreEntryPage data={data} onScoresUpdated={onScoresUpdated} />;
-}
-
-function ErrorPage({ error, onRetry }: { error: string; onRetry: () => void }) {
-  return (
-    <main className="error-page">
-      <section className="panel setup-message">
-        <p className="eyebrow">FIRST COMPETITION MANAGER</p>
-        <h1>We couldn't load your workspace.</h1>
-        <p>{error}</p>
-        <p>
-          Start PostgreSQL, then run <code>npm run db:migrate</code> and{" "}
-          <code>npm run db:seed</code>. Start the app with{" "}
-          <code>npm run dev</code>.
-        </p>
-        <button
-          className="button button--primary"
-          onClick={onRetry}
-          type="button"
-        >
-          Try again
-        </button>
-      </section>
-    </main>
-  );
-}
-
-export default function App() {
-  const { data, isLoading, error, reload } = useCompetitionData();
-
-  if (isLoading) {
-    return (
-      <main className="loading-page">
-        <span className="loading-mark" aria-hidden="true">
-          F
-        </span>
-        <p role="status">Preparing your competition workspace…</p>
-      </main>
-    );
-  }
-
-  if (!data) {
-    return (
-      <ErrorPage
-        error={error ?? "The demo competition could not be loaded."}
-        onRetry={() => void reload()}
-      />
-    );
-  }
-
-  return (
-    <Routes>
-      <Route element={<AppFrame data={data} />}>
-        <Route index element={<HomePage data={data} />} />
-        <Route path="events" element={<EventPage data={data} />} />
-        <Route path="teams" element={<TeamsPage data={data} />} />
-        <Route path="matches" element={<MatchesPage data={data} />} />
-        <Route
-          path="matches/:matchId/score"
-          element={<ScoreRoute data={data} onScoresUpdated={reload} />}
-        />
-        <Route path="rankings" element={<RankingsPage data={data} />} />
-        <Route path="*" element={<NotFoundPage />} />
-      </Route>
-    </Routes>
-  );
-}
-
-function NotFoundPage() {
+export function NotFoundPage() {
   return (
     <section className="panel not-found-panel">
       <p className="eyebrow">404: PAGE NOT FOUND</p>
       <h1>This page isn't in the schedule.</h1>
       <p>Head back to the workspace overview to continue.</p>
-      <Link className="button button--primary" to="/">
+      <Link className="button button--primary" href="/workspace">
         Back to overview
       </Link>
     </section>

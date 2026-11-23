@@ -1,6 +1,7 @@
 import { z } from "zod";
 
-export * from "./ranking.js";
+export * from "./ranking";
+export * from "./permissions";
 
 export const apiHealthSchema = z.object({
   status: z.literal("ok"),
