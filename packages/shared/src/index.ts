@@ -2,6 +2,7 @@ import { z } from "zod";
 
 export * from "./ranking";
 export * from "./permissions";
+export * from "./admin";
 
 export const apiHealthSchema = z.object({
   status: z.literal("ok"),

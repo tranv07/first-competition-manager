@@ -6,9 +6,11 @@ import { usePathname } from "next/navigation";
 export default function WorkspaceNav({
   competitionId,
   canManageUsers,
+  canAdmin,
 }: {
   competitionId: string;
   canManageUsers: boolean;
+  canAdmin?: boolean;
 }) {
   const pathname = usePathname();
   const navItems = [
@@ -17,6 +19,9 @@ export default function WorkspaceNav({
     { href: "/workspace/teams", label: "Teams", glyph: "T" },
     { href: "/workspace/matches", label: "Matches", glyph: "M" },
     { href: "/workspace/rankings", label: "Rankings", glyph: "R" },
+    ...(canAdmin
+      ? [{ href: "/workspace/admin", label: "Admin CRUD", glyph: "A" }]
+      : []),
     ...(canManageUsers
       ? [
           {

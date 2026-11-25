@@ -44,6 +44,14 @@ export async function requireActiveUser() {
   return user;
 }
 
+export async function requireSuperAdmin() {
+  const user = await requireActiveUser();
+  if (!user.isSuperAdmin) {
+    throw new PermissionError(403, "Super admin access is required.");
+  }
+  return user;
+}
+
 export async function requireCompetitionPermission(
   competitionId: string,
   action: CompetitionAction,

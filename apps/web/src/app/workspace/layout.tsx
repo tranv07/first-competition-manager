@@ -48,6 +48,7 @@ export default async function WorkspaceLayout({
   return (
     <AppFrame
       canManageUsers={user.isSuperAdmin || roles.includes("event_admin")}
+      canAdmin={user.isSuperAdmin || roles.includes("event_admin")}
       currentUser={{ name: user.name, email: user.email }}
       data={data}
     >

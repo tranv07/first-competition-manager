@@ -8,11 +8,13 @@ export function AppFrame({
   data,
   currentUser,
   canManageUsers,
+  canAdmin,
   children,
 }: {
   data: DemoData;
   currentUser: { name: string; email: string };
   canManageUsers: boolean;
+  canAdmin?: boolean;
   children: ReactNode;
 }) {
   return (
@@ -36,6 +38,7 @@ export function AppFrame({
         <WorkspaceNav
           competitionId={data.competition.id}
           canManageUsers={canManageUsers}
+          canAdmin={canAdmin}
         />
 
         <div className="sidebar-event">
